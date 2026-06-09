@@ -9,6 +9,8 @@
 
 このアプリケーションはClaude（Anthropic）との対話によって生成されました。
 「Excelとは何か」を問うEuSpRIG 2026発表のデモとして使用しています。
+[https://eusprig.org/about/about-eusprig/]
+(The European Spreadsheet Productivity & Risks Interest Group – EuSPRIG –)
 
 スプレッドシートの最小定義を探る実験です。
 バグがあります。不完全です。それが目的です。
@@ -42,6 +44,8 @@
 
 This application was generated through dialogue with Claude (Anthropic).
 It serves as a demonstration for a EuSpRIG 2026 presentation exploring the question: *What is Excel?*
+[https://eusprig.org/about/about-eusprig/]
+(The European Spreadsheet Productivity & Risks Interest Group – EuSPRIG –)
 
 This is an experiment in finding the minimal definition of a spreadsheet.
 It has bugs. It is incomplete. That is the point.
