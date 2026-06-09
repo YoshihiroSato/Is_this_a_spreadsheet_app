@@ -1,5 +1,7 @@
 # これはスプレッドシートですか？ / Is This a Spreadsheet App?
 
+!(images/spr3.png)
+
 **動作デモ / Live Demo:**
 [https://yoshihirosato.github.io/Is_this_a_spreadsheet_app/SPRv3.html](https://yoshihirosato.github.io/Is_this_a_spreadsheet_app/SPRv3.html)
 
