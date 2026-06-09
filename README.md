@@ -3,6 +3,8 @@
 **動作デモ / Live Demo:**
 [https://yoshihirosato.github.io/Is_this_a_spreadsheet_app/SPRv3.html](https://yoshihirosato.github.io/Is_this_a_spreadsheet_app/SPRv3.html)
 
+[https://forms.office.com/r/5ZSEmaceUy](簡単なアンケートにご協力ください/Please take a short survey.)
+
 ---
 
 ## 概要
