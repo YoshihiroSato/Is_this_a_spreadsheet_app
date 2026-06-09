@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>スプレッドシートアプリ v3 — 15桁精度</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Courier New',monospace;font-size:13px;padding:16px;background:#fff;color:#111}
+#app{font-family:'Courier New',monospace;font-size:13px;user-select:none;padding:8px 0}
+#toolbar{display:flex;align-items:center;gap:6px;padding:0 0 8px;border-bottom:0.5px solid #ddd;flex-wrap:wrap}
+#cell-ref{width:54px;height:28px;text-align:center;font-family:'Courier New',monospace;font-size:12px;font-weight:500;background:#f5f5f5;border:0.5px solid #ccc;border-radius:4px;color:#111}
+#formula-bar{flex:1;height:28px;font-family:'Courier New',monospace;font-size:13px;padding:0 8px;background:#fff;border:0.5px solid #ccc;border-radius:4px;color:#111;min-width:120px}
+#formula-bar:focus{outline:none;border-color:#888}
+.tb-btn{height:28px;padding:0 8px;font-size:12px;font-weight:500;background:#f5f5f5;border:0.5px solid #ddd;border-radius:4px;cursor:pointer;color:#555;white-space:nowrap}
+.tb-btn:hover{background:#fff;border-color:#ccc;color:#111}
+.tb-sep{width:0.5px;height:20px;background:#ddd;margin:0 2px}
+#grid-wrap{overflow:auto;border:0.5px solid #ddd;border-radius:4px;max-height:420px;outline:none}
+#grid-wrap:focus{border-color:#aaa}
+table{border-collapse:collapse;table-layout:fixed}
+.ch{background:#f5f5f5;border-right:0.5px solid #ddd;border-bottom:0.5px solid #ccc;color:#888;font-size:11px;font-weight:500;text-align:center;position:sticky;top:0;z-index:2;height:24px;padding:0 4px;white-space:nowrap}
+.rh{background:#f5f5f5;border-right:0.5px solid #ccc;border-bottom:0.5px solid #ddd;color:#888;font-size:11px;font-weight:500;text-align:center;position:sticky;left:0;z-index:1;width:36px;min-width:36px}
+.corner{position:sticky;top:0;left:0;z-index:3;background:#f5f5f5;border-right:0.5px solid #ccc;border-bottom:0.5px solid #ccc}
+td.cell{border-right:0.5px solid #ddd;border-bottom:0.5px solid #ddd;min-width:100px;width:100px;height:24px;padding:0;position:relative;overflow:visible;cursor:cell}
+td.cell.selected{outline:2px solid #378ADD;outline-offset:-1px;z-index:4}
+td.cell.in-range{background:rgba(55,138,221,0.08)}
+.cell-val{display:block;width:100%;height:100%;padding:0 4px;line-height:24px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:#111}
+.cell-val.align-right{text-align:right}
+.cell-val.err{color:#D85A30}
+.cell-val.fcol{color:#185FA5}
+#inline-editor{position:absolute;z-index:10;border:2px solid #378ADD;background:#fff;font-family:'Courier New',monospace;font-size:13px;padding:0 4px;color:#111;outline:none;min-width:100px;height:24px;box-shadow:0 2px 8px rgba(0,0,0,0.12)}
+#status{display:flex;gap:12px;padding:6px 0 0;font-size:11px;color:#888;flex-wrap:wrap}
+.stat-item{display:flex;gap:4px;align-items:center}
+.stat-label{color:#aaa}
+#copy-hint{font-size:11px;color:#aaa;padding:4px 0 0}
+#digit-badge{font-size:10px;padding:2px 6px;background:#f5f5f5;border:0.5px solid #ddd;border-radius:3px;color:#aaa;margin-left:auto}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="toolbar">
+    <input id="cell-ref" readonly value="A1">
+    <div class="tb-sep"></div>
+    <input id="formula-bar" value="" placeholder="値または =数式">
+    <div class="tb-sep"></div>
+    <button class="tb-btn" id="btn-bold"><b>B</b></button>
+    <button class="tb-btn" id="btn-clear">消去</button>
+    <button class="tb-btn" id="btn-sum">Σ</button>
+    <div class="tb-sep"></div>
+    <button class="tb-btn" id="btn-copy">コピー</button>
+    <button class="tb-btn" id="btn-paste">貼付</button>
+    <div class="tb-sep"></div>
+    <button class="tb-btn" id="btn-csv">CSV出力</button>
+    <button class="tb-btn" id="btn-demo">サンプルデータ</button>
+    <span id="digit-badge">精度: 15桁</span>
+  </div>
+  <div id="grid-wrap" tabindex="0"><table id="grid"><thead></thead><tbody></tbody></table></div>
+  <div id="copy-hint"></div>
+  <div id="status">
+    <span class="stat-item"><span class="stat-label">合計:</span><span id="s-sum">—</span></span>
+    <span class="stat-item"><span class="stat-label">平均:</span><span id="s-avg">—</span></span>
+    <span class="stat-item"><span class="stat-label">数値個数:</span><span id="s-cnt">—</span></span>
+    <span class="stat-item"><span class="stat-label">最大:</span><span id="s-max">—</span></span>
+    <span class="stat-item"><span class="stat-label">最小:</span><span id="s-min">—</span></span>
+  </div>
+</div>
+<script>
+const ROWS=30,COLS=16;
+const data={};
+const formats={};
+let selR=0,selC=0;
+let rangeStart={r:0,c:0},rangeEnd={r:0,c:0};
+let mouseDown=false;
+let clipboard=null;
+const inlineEd=document.createElement('input');
+inlineEd.id='inline-editor';
+inlineEd.style.display='none';
+document.body.appendChild(inlineEd);
+ 
+function colName(c){let s='';c++;while(c>0){s=String.fromCharCode(64+(c%26||26))+s;c=Math.floor((c-(c%26||26))/26)}return s}
+function cellId(r,c){return colName(c)+''+(r+1)}
+function parseRef(ref){const m=ref.match(/^([A-Z]+)(\d+)$/i);if(!m)return null;let s=m[1].toUpperCase(),c=0;for(let i=0;i<s.length;i++)c=c*26+(s.charCodeAt(i)-64);return[parseInt(m[2])-1,c-1]}
+ 
+// 15桁精度表示
+function fmt15(v){
+  if(typeof v!=='number'||!isFinite(v))return String(v);
+  if(Number.isInteger(v))return v.toString();
+  const s=v.toPrecision(15);
+  return parseFloat(s).toString();
+}
+ 
+function evalFormula(expr,depth=0){
+  if(depth>20)return'#CIRC!';
+  expr=expr.trim();
+  const getRange=(a1,b1)=>{
+    const r1=parseRef(a1),r2=parseRef(b1);if(!r1||!r2)return[];
+    const vals=[];
+    for(let r=Math.min(r1[0],r2[0]);r<=Math.max(r1[0],r2[0]);r++)
+      for(let c=Math.min(r1[1],r2[1]);c<=Math.max(r1[1],r2[1]);c++){
+        const v=getCellVal(r,c,depth+1);if(typeof v==='number')vals.push(v);}
+    return vals;
+  };
+  const fnM=expr.match(/^(SUM|AVERAGE|AVG|MAX|MIN|COUNT|IF|ROUND|ABS|SQRT|POWER|MOD)\((.*)\)$/i);
+  if(fnM){
+    const fn=fnM[1].toUpperCase(),args=fnM[2];
+    const rM=args.match(/^([A-Z]+\d+):([A-Z]+\d+)$/i);
+    if(rM&&['SUM','AVERAGE','AVG','MAX','MIN','COUNT'].includes(fn)){
+      const vals=getRange(rM[1],rM[2]);
+      if(!vals.length)return 0;
+      if(fn==='SUM')return vals.reduce((a,b)=>a+b,0);
+      if(fn==='AVERAGE'||fn==='AVG')return vals.reduce((a,b)=>a+b,0)/vals.length;
+      if(fn==='MAX')return Math.max(...vals);
+      if(fn==='MIN')return Math.min(...vals);
+      if(fn==='COUNT')return vals.length;
+    }
+    if(fn==='IF'){const p=splitArgs(args);if(p.length<2)return'#ARG!';const cond=evalFormula(p[0],depth+1);return cond?evalFormula(p[1]||'0',depth+1):evalFormula(p[2]||'0',depth+1)}
+    if(fn==='ROUND'){const p=splitArgs(args);const n=+evalFormula(p[0]||'0',depth+1);const d=+evalFormula(p[1]||'0',depth+1);return isNaN(n)?'#VALUE!':parseFloat(n.toFixed(Math.max(0,d)))}
+    if(fn==='ABS')return Math.abs(+evalFormula(args,depth+1));
+    if(fn==='SQRT'){const v=+evalFormula(args,depth+1);return v<0?'#NUM!':Math.sqrt(v)}
+    if(fn==='POWER'){const p=splitArgs(args);return Math.pow(+evalFormula(p[0],depth+1),+evalFormula(p[1],depth+1))}
+    if(fn==='MOD'){const p=splitArgs(args);const d=+evalFormula(p[1],depth+1);return d===0?'#DIV/0!':+evalFormula(p[0],depth+1)%d}
+  }
+  if(/^[A-Z]+\d+$/i.test(expr)){const p=parseRef(expr);if(!p)return'#REF!';return getCellVal(p[0],p[1],depth+1)}
+  try{
+    const safe=expr.replace(/[A-Z]+\d+/gi,ref=>{const p=parseRef(ref);if(!p)return'undefined';const v=getCellVal(p[0],p[1],depth+1);return typeof v==='number'?v:'undefined'});
+    const r=Function('"use strict";return ('+safe+')')();
+    return typeof r==='number'&&isFinite(r)?r:(r===true?1:r===false?0:r);
+  }catch(e){return'#CALC!'}
+}
+ 
+function splitArgs(s){const p=[];let cur='',d=0;for(const ch of s){if(ch==='('||ch==='[')d++;else if(ch===')'||ch===']')d--;else if(ch===','&&d===0){p.push(cur.trim());cur='';continue}cur+=ch}p.push(cur.trim());return p}
+ 
+function getCellVal(r,c,depth=0){
+  const raw=data[cellId(r,c)]||'';
+  if(!raw)return'';
+  if(raw.startsWith('=')){return evalFormula(raw.slice(1),depth)}
+  const n=Number(raw);return isNaN(n)||raw.trim()===''?raw:n;
+}
+ 
+function formatVal(v,raw){
+  if(v===''||v===null||v===undefined)return{text:'',cls:''};
+  if(typeof v==='string'&&v.startsWith('#'))return{text:v,cls:'err'};
+  if(typeof v==='number'){
+    const text=fmt15(v);
+    const isFormula=raw&&raw.startsWith('=');
+    return{text,cls:'align-right'+(isFormula?' fcol':'')};
+  }
+  return{text:String(v),cls:raw&&raw.startsWith('=')?'fcol':''}
+}
+ 
+function buildGrid(){
+  const thead=document.querySelector('#grid thead');
+  const tbody=document.querySelector('#grid tbody');
+  let th='<tr><th class="ch corner" style="width:36px"></th>';
+  for(let c=0;c<COLS;c++)th+=`<th class="ch" id="ch${c}">${colName(c)}</th>`;
+  thead.innerHTML=th+'</tr>';
+  let tb='';
+  for(let r=0;r<ROWS;r++){
+    tb+=`<tr><td class="rh" id="rh${r}">${r+1}</td>`;
+    for(let c=0;c<COLS;c++)tb+=`<td class="cell" id="c${r}_${c}" data-r="${r}" data-c="${c}"><span class="cell-val"></span></td>`;
+    tb+='</tr>';
+  }
+  tbody.innerHTML=tb;
+  document.querySelectorAll('td.cell').forEach(td=>{
+    td.addEventListener('mousedown',onMousedown);
+    td.addEventListener('mouseover',onMouseover);
+    td.addEventListener('dblclick',onDblclick);
+  });
+  document.addEventListener('mouseup',()=>mouseDown=false);
+}
+ 
+function getTd(r,c){return document.getElementById(`c${r}_${c}`)}
+ 
+function renderCell(r,c){
+  const td=getTd(r,c);if(!td)return;
+  const raw=data[cellId(r,c)]||'';
+  const span=td.querySelector('.cell-val');if(!span)return;
+  const v=getCellVal(r,c);
+  const f=formatVal(v,raw);
+  span.textContent=f.text;
+  span.className='cell-val'+(f.cls?' '+f.cls:'');
+  if(formats[cellId(r,c)]?.bold)span.style.fontWeight='bold';else span.style.fontWeight='';
+}
+ 
+function renderAll(){for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++)renderCell(r,c)}
+ 
+function clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v))}
+ 
+function select(r,c,extend=false){
+  r=clamp(r,0,ROWS-1);c=clamp(c,0,COLS-1);
+  if(!extend){rangeStart={r,c};rangeEnd={r,c}}
+  else rangeEnd={r,c};
+  selR=r;selC=c;
+  updateSel();updateFB();updateStatus();
+  scrollIntoView(r,c);
+}
+ 
+function scrollIntoView(r,c){
+  const td=getTd(r,c);if(!td)return;
+  const wrap=document.getElementById('grid-wrap');
+  const tr=td.getBoundingClientRect(),wr=wrap.getBoundingClientRect();
+  if(tr.bottom>wr.bottom)wrap.scrollTop+=tr.bottom-wr.bottom+4;
+  if(tr.top<wr.top+24)wrap.scrollTop-=wr.top+24-tr.top+4;
+  if(tr.right>wr.right)wrap.scrollLeft+=tr.right-wr.right+4;
+  if(tr.left<wr.left+36)wrap.scrollLeft-=wr.left+36-tr.left+4;
+}
+ 
+function updateSel(){
+  document.querySelectorAll('td.cell.selected,td.cell.in-range').forEach(td=>td.classList.remove('selected','in-range'));
+  const r1=Math.min(rangeStart.r,rangeEnd.r),r2=Math.max(rangeStart.r,rangeEnd.r);
+  const c1=Math.min(rangeStart.c,rangeEnd.c),c2=Math.max(rangeStart.c,rangeEnd.c);
+  for(let r=r1;r<=r2;r++)for(let c=c1;c<=c2;c++){
+    const td=getTd(r,c);if(!td)continue;
+    if(r===selR&&c===selC)td.classList.add('selected');else td.classList.add('in-range');
+  }
+}
+ 
+function updateFB(){
+  document.getElementById('cell-ref').value=cellId(selR,selC);
+  document.getElementById('formula-bar').value=data[cellId(selR,selC)]||'';
+}
+ 
+function updateStatus(){
+  const r1=Math.min(rangeStart.r,rangeEnd.r),r2=Math.max(rangeStart.r,rangeEnd.r);
+  const c1=Math.min(rangeStart.c,rangeEnd.c),c2=Math.max(rangeStart.c,rangeEnd.c);
+  const nums=[];
+  for(let r=r1;r<=r2;r++)for(let c=c1;c<=c2;c++){const v=getCellVal(r,c);if(typeof v==='number')nums.push(v)}
+  if(nums.length<2){['sum','avg','cnt','max','min'].forEach(k=>document.getElementById('s-'+k).textContent='—');return}
+  const sum=nums.reduce((a,b)=>a+b,0);
+  document.getElementById('s-sum').textContent=fmt15(sum);
+  document.getElementById('s-avg').textContent=fmt15(sum/nums.length);
+  document.getElementById('s-cnt').textContent=nums.length;
+  document.getElementById('s-max').textContent=fmt15(Math.max(...nums));
+  document.getElementById('s-min').textContent=fmt15(Math.min(...nums));
+}
+ 
+let edR=-1,edC=-1;
+function isEditing(){return edR>=0}
+ 
+function startEdit(initialVal=null){
+  if(isEditing())return;
+  edR=selR;edC=selC;
+  const td=getTd(edR,edC);if(!td)return;
+  const rect=td.getBoundingClientRect();
+  const wrap=document.getElementById('grid-wrap');
+  const wrapRect=wrap.getBoundingClientRect();
+  inlineEd.style.top=(rect.top-wrapRect.top+wrap.scrollTop)+'px';
+  inlineEd.style.left=(rect.left-wrapRect.left+wrap.scrollLeft)+'px';
+  inlineEd.style.width=Math.max(100,rect.width)+'px';
+  wrap.style.position='relative';
+  wrap.appendChild(inlineEd);
+  const raw=data[cellId(edR,edC)]||'';
+  inlineEd.value=initialVal!==null?initialVal:raw;
+  inlineEd.style.display='block';
+  inlineEd.focus();
+  if(initialVal===null)inlineEd.select();
+  else inlineEd.setSelectionRange(inlineEd.value.length,inlineEd.value.length);
+  document.getElementById('formula-bar').value=inlineEd.value;
+  inlineEd.addEventListener('input',syncFB);
+}
+ 
+function syncFB(){document.getElementById('formula-bar').value=inlineEd.value}
+ 
+function commitEdit(val,moveR=0,moveC=0){
+  if(!isEditing())return;
+  const r=edR,c=edC;
+  edR=-1;edC=-1;
+  inlineEd.removeEventListener('input',syncFB);
+  inlineEd.style.display='none';
+  if(val!==null){const id=cellId(r,c);if(val==='')delete data[id];else data[id]=val;}
+  renderAll();
+  select(clamp(r+moveR,0,ROWS-1),clamp(c+moveC,0,COLS-1));
+  document.getElementById('grid-wrap').focus();
+}
+ 
+function abortEdit(){
+  if(!isEditing())return;
+  edR=-1;edC=-1;
+  inlineEd.removeEventListener('input',syncFB);
+  inlineEd.style.display='none';
+  updateFB();
+  document.getElementById('grid-wrap').focus();
+}
+ 
+inlineEd.addEventListener('keydown',e=>{
+  if(e.key==='Enter'){e.preventDefault();commitEdit(inlineEd.value,1,0)}
+  else if(e.key==='Tab'){e.preventDefault();commitEdit(inlineEd.value,0,e.shiftKey?-1:1)}
+  else if(e.key==='Escape'){e.preventDefault();abortEdit()}
+  else if(e.key==='ArrowUp'&&!inlineEd.value.startsWith('=')){e.preventDefault();commitEdit(inlineEd.value,-1,0)}
+  else if(e.key==='ArrowDown'&&!inlineEd.value.startsWith('=')){e.preventDefault();commitEdit(inlineEd.value,1,0)}
+});
+ 
+document.getElementById('grid-wrap').addEventListener('keydown',e=>{
+  if(isEditing())return;
+  const nav={ArrowUp:[-1,0],ArrowDown:[1,0],ArrowLeft:[0,-1],ArrowRight:[0,1]};
+  if(nav[e.key]){e.preventDefault();const[dr,dc]=nav[e.key];select(selR+dr,selC+dc,e.shiftKey);return}
+  if(e.key==='Tab'){e.preventDefault();select(selR,selC+(e.shiftKey?-1:1));return}
+  if(e.key==='Enter'){e.preventDefault();startEdit();return}
+  if(e.key==='F2'){e.preventDefault();startEdit();return}
+  if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();clearRange();return}
+  if(e.ctrlKey||e.metaKey){
+    if(e.key==='c'){e.preventDefault();doCopy();return}
+    if(e.key==='v'){e.preventDefault();doPaste();return}
+    if(e.key==='b'){e.preventDefault();toggleBold();return}
+    return;
+  }
+  if(e.key.length===1&&!e.altKey){e.preventDefault();startEdit(e.key)}
+});
+ 
+function onMousedown(e){
+  if(isEditing())commitEdit(inlineEd.value);
+  const r=+this.dataset.r,c=+this.dataset.c;
+  mouseDown=true;
+  if(e.shiftKey)select(r,c,true);else select(r,c);
+  document.getElementById('grid-wrap').focus();
+}
+function onMouseover(){
+  if(!mouseDown)return;
+  rangeEnd={r:+this.dataset.r,c:+this.dataset.c};
+  selR=rangeEnd.r;selC=rangeEnd.c;
+  updateSel();updateStatus();
+}
+function onDblclick(){if(!isEditing())startEdit()}
+ 
+const fb=document.getElementById('formula-bar');
+fb.addEventListener('focus',()=>{
+  if(!isEditing())startEdit();
+  setTimeout(()=>{inlineEd.value=data[cellId(selR,selC)]||'';fb.value=inlineEd.value;},0);
+});
+fb.addEventListener('input',()=>{if(isEditing())inlineEd.value=fb.value});
+fb.addEventListener('keydown',e=>{
+  if(e.key==='Enter'){e.preventDefault();if(isEditing())commitEdit(fb.value,1,0);document.getElementById('grid-wrap').focus()}
+  else if(e.key==='Escape'){e.preventDefault();abortEdit();document.getElementById('grid-wrap').focus()}
+});
+ 
+function doCopy(){
+  const r1=Math.min(rangeStart.r,rangeEnd.r),r2=Math.max(rangeStart.r,rangeEnd.r);
+  const c1=Math.min(rangeStart.c,rangeEnd.c),c2=Math.max(rangeStart.c,rangeEnd.c);
+  clipboard={r1,r2,c1,c2,cells:{}};
+  for(let r=r1;r<=r2;r++)for(let c=c1;c<=c2;c++)clipboard.cells[`${r-r1}_${c-c1}`]=data[cellId(r,c)]||'';
+  document.getElementById('copy-hint').textContent=`コピー: ${cellId(r1,c1)}:${cellId(r2,c2)} (${r2-r1+1}行 × ${c2-c1+1}列)`;
+}
+ 
+function adjustFormula(raw,dr,dc){
+  if(!raw.startsWith('='))return raw;
+  return raw.replace(/([A-Z]+)(\d+)/gi,(m,col,row)=>{
+    let c=0;const s=col.toUpperCase();
+    for(let i=0;i<s.length;i++)c=c*26+(s.charCodeAt(i)-64);
+    c--;const r=parseInt(row)-1;
+    const nr=r+dr,nc=c+dc;
+    if(nr<0||nr>=ROWS||nc<0||nc>=COLS)return'#REF!';
+    return colName(nc)+(nr+1);
+  });
+}
+ 
+function doPaste(){
+  if(!clipboard)return;
+  const dr=selR-clipboard.r1,dc=selC-clipboard.c1;
+  for(let key in clipboard.cells){
+    const[rOff,cOff]=key.split('_').map(Number);
+    const tr=clipboard.r1+rOff+dr,tc=clipboard.c1+cOff+dc;
+    if(tr<0||tr>=ROWS||tc<0||tc>=COLS)continue;
+    const adjusted=adjustFormula(clipboard.cells[key],dr,dc);
+    if(adjusted==='')delete data[cellId(tr,tc)];else data[cellId(tr,tc)]=adjusted;
+  }
+  renderAll();updateFB();updateStatus();
+  document.getElementById('copy-hint').textContent='貼り付け完了 (数式は相対参照で調整済み)';
+}
+ 
+function clearRange(){
+  const r1=Math.min(rangeStart.r,rangeEnd.r),r2=Math.max(rangeStart.r,rangeEnd.r);
+  const c1=Math.min(rangeStart.c,rangeEnd.c),c2=Math.max(rangeStart.c,rangeEnd.c);
+  for(let r=r1;r<=r2;r++)for(let c=c1;c<=c2;c++){delete data[cellId(r,c)];delete formats[cellId(r,c)]}
+  renderAll();updateFB();updateStatus();
+}
+ 
+function toggleBold(){
+  const id=cellId(selR,selC);
+  formats[id]=formats[id]||{};formats[id].bold=!formats[id].bold;
+  renderCell(selR,selC);
+}
+ 
+document.getElementById('btn-bold').addEventListener('click',()=>{toggleBold();document.getElementById('grid-wrap').focus()});
+document.getElementById('btn-clear').addEventListener('click',()=>{clearRange();document.getElementById('grid-wrap').focus()});
+document.getElementById('btn-copy').addEventListener('click',()=>{doCopy();document.getElementById('grid-wrap').focus()});
+document.getElementById('btn-paste').addEventListener('click',()=>{doPaste();document.getElementById('grid-wrap').focus()});
+document.getElementById('btn-sum').addEventListener('click',()=>{
+  if(selR>0){
+    let r=selR-1,hasNum=false;
+    while(r>=0&&typeof getCellVal(r,selC)==='number'){r--;hasNum=true}
+    const start=cellId(r+(hasNum?1:0),selC),end=cellId(selR-1,selC);
+    data[cellId(selR,selC)]=`=SUM(${start}:${end})`;
+    renderAll();updateFB();updateStatus();
+  }
+  document.getElementById('grid-wrap').focus();
+});
+document.getElementById('btn-csv').addEventListener('click',()=>{
+  let maxR=0,maxC=0;
+  Object.keys(data).forEach(id=>{const p=parseRef(id);if(p){maxR=Math.max(maxR,p[0]);maxC=Math.max(maxC,p[1])}});
+  const lines=[];
+  for(let r=0;r<=maxR;r++){
+    const row=[];
+    for(let c=0;c<=maxC;c++){const v=getCellVal(r,c);const s=v===''?'':String(v);row.push(s.includes(',')?`"${s}"`:s)}
+    lines.push(row.join(','));
+  }
+  const blob=new Blob(['\uFEFF'+lines.join('\n')],{type:'text/csv;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.download='spreadsheet.csv';a.click();
+  URL.revokeObjectURL(url);
+  document.getElementById('grid-wrap').focus();
+});
+document.getElementById('btn-demo').addEventListener('click',()=>{
+  Object.keys(data).forEach(k=>delete data[k]);
+  Object.assign(data,{
+    A1:'月',B1:'売上',C1:'費用',D1:'利益',
+    A2:'1月',B2:'850000',C2:'320000',D2:'=B2-C2',
+    A3:'2月',B3:'920000',C3:'340000',D3:'=B3-C3',
+    A4:'3月',B4:'1100000',C4:'380000',D4:'=B4-C4',
+    A5:'4月',B5:'980000',C5:'360000',D5:'=B5-C5',
+    A6:'5月',B6:'1050000',C6:'370000',D6:'=B6-C6',
+    A7:'合計',B7:'=SUM(B2:B6)',C7:'=SUM(C2:C6)',D7:'=SUM(D2:D6)',
+    A8:'平均',B8:'=AVERAGE(B2:B6)',C8:'=AVERAGE(C2:C6)',D8:'=AVERAGE(D2:D6)'
+  });
+  renderAll();select(0,0);
+  document.getElementById('grid-wrap').focus();
+});
+ 
+buildGrid();renderAll();select(0,0);
+document.getElementById('grid-wrap').focus();
+</script>
+</body>
+</html>
